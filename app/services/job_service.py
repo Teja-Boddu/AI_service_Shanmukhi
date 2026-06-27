@@ -3,10 +3,9 @@ from app.schemas.job_dto import JobDTO
 from app.services.llm_service import LLMService
 from app.services.embedding_service import EmbeddingService
 from app.services.mongodb_service import MongoDBService
-from app.services.retrieval_service import RetrievalService
+
 from app.services.reranker_service import RerankerService
 from app.services.scoring_service import ScoringService
-
 
 class JobService:
 
@@ -18,7 +17,6 @@ class JobService:
 
         self.mongo = MongoDBService()
 
-        self.retrieval = RetrievalService()
 
         self.reranker = RerankerService()
 
@@ -74,32 +72,29 @@ class JobService:
         # Load resumes
         # -----------------------------------
 
-        resumes = self.mongo.get_all_resumes()
+        
+        retrieved = self.mongo.search_similar_resumes(
 
-        # -----------------------------------
-        # Retrieve Top 50
-        # -----------------------------------
+        embedding=job_embedding,
 
-        retrieved = (
+        top_n=50,
 
-            self.retrieval.retrieve_candidates(
+        filters=filters,
 
-                job_embedding=job_embedding,
-
-                resumes=resumes,
-
-                top_n=50,
-
-                filters=filters,
-
-            )
-
-        )
+    )
 
         # -----------------------------------
         # Rerank Top 50
         # -----------------------------------
+        for candidate in retrieved:
 
+            candidate.pop(
+
+                "embedding_score",
+
+                None,
+
+            )
         reranked = (
 
             self.reranker.rerank(
@@ -174,7 +169,7 @@ class JobService:
 
             "job": job,
 
-            "total_candidates": len(resumes),
+            "total_candidates": self.mongo.resume_collection.count_documents({}),
 
             "retrieved": len(retrieved),
 

@@ -358,3 +358,88 @@ class MongoDBService:
         return list(
             self.job_collection.find()
         )
+
+
+    
+
+
+    def search_similar_resumes(
+        self,
+        embedding: list[float],
+        top_n: int = 50,
+        filters: dict | None = None,
+    ):
+
+        vector_stage = {
+            "$vectorSearch": {
+                "index": "resume_embedding_index",
+                "path": "embedding",
+                "queryVector": embedding,
+                "numCandidates": max(top_n * 4, 100),
+                "limit": top_n,
+            }
+        }
+
+        pipeline = [vector_stage]
+
+        if filters:
+
+            match = {}
+
+            if filters.get("location"):
+
+                match["location"] = filters["location"]
+
+            if match:
+
+                pipeline.append(
+                    {
+                        "$match": match
+                    }
+                )
+
+        pipeline.append(
+            {
+                "$project": {
+
+                    "_id": 0,
+
+                    "candidate_name": 1,
+
+                    "email": 1,
+
+                    "phone": 1,
+
+                    "location": 1,
+
+                    "skills": 1,
+
+                    "education": 1,
+
+                    "experience": 1,
+
+                    "projects": 1,
+
+                    "certifications": 1,
+
+                    "total_experience": 1,
+
+                    "raw_text": 1,
+
+                    "embedding_score": {
+                        "$meta": "vectorSearchScore"
+                    }
+
+                }
+            }
+        )
+
+        return list(
+
+            self.resume_collection.aggregate(
+
+                pipeline
+
+            )
+
+        )
