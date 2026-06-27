@@ -2,6 +2,7 @@ from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
 )
+
 import torch
 
 from app.core.logging import logger
@@ -18,8 +19,10 @@ class RerankerService:
 
             logger.info("Loading BGE Reranker...")
 
-            RerankerService._tokenizer = AutoTokenizer.from_pretrained(
-                "BAAI/bge-reranker-v2-m3"
+            RerankerService._tokenizer = (
+                AutoTokenizer.from_pretrained(
+                    "BAAI/bge-reranker-v2-m3"
+                )
             )
 
             RerankerService._model = (
@@ -35,37 +38,169 @@ class RerankerService:
         self.tokenizer = RerankerService._tokenizer
         self.model = RerankerService._model
 
-    def rerank(
+    # ---------------------------------------------------
+
+    def build_resume_text(
         self,
-        job_text,
-        resumes,
-        top_k=5,
+        resume,
     ):
 
-        scores = []
+        text = []
+
+        text.append(
+            f"Candidate: {resume.get('candidate_name','')}"
+        )
+
+        text.append(
+            f"Experience: {resume.get('total_experience','')}"
+        )
+
+        text.append(
+            "Skills:"
+        )
+
+        text.extend(
+            resume.get(
+                "skills",
+                []
+            )
+        )
+
+        text.append(
+            "Education:"
+        )
+
+        for edu in resume.get(
+            "education",
+            []
+        ):
+
+            text.append(
+
+                f"{edu.get('degree','')} "
+
+                f"{edu.get('specialization','')} "
+
+                f"{edu.get('institution','')}"
+
+            )
+
+        text.append(
+            "Projects:"
+        )
+
+        for project in resume.get(
+            "projects",
+            []
+        ):
+
+            text.append(
+
+                project.get(
+                    "title",
+                    ""
+                )
+
+            )
+
+            text.append(
+
+                project.get(
+                    "description",
+                    ""
+                )
+
+            )
+
+        text.append(
+            "Certifications:"
+        )
+
+        for cert in resume.get(
+            "certifications",
+            []
+        ):
+
+            text.append(
+
+                cert.get(
+                    "name",
+                    ""
+                )
+
+            )
+
+        return "\n".join(text)
+
+    # ---------------------------------------------------
+
+    def rerank(
+
+        self,
+
+        job_description,
+
+        resumes,
+
+        top_k=5,
+
+    ):
+
+        ranked = []
 
         with torch.no_grad():
 
             for resume in resumes:
 
-                inputs = self.tokenizer(
-                    job_text,
-                    resume["raw_text"],
-                    truncation=True,
-                    padding=True,
-                    max_length=512,
-                    return_tensors="pt",
+                resume_text = self.build_resume_text(
+                    resume
                 )
 
-                score = self.model(**inputs).logits.squeeze().item()
+                inputs = self.tokenizer(
 
-                resume["rerank_score"] = float(score)
+                    job_description,
 
-                scores.append(resume)
+                    resume_text,
 
-        scores.sort(
+                    truncation=True,
+
+                    padding=True,
+
+                    max_length=512,
+
+                    return_tensors="pt",
+
+                )
+
+                score = (
+
+                    self.model(
+                        **inputs
+                    )
+
+                    .logits
+
+                    .squeeze()
+
+                    .item()
+
+                )
+
+                resume["rerank_score"] = round(
+                    score,
+                    4,
+                )
+
+                ranked.append(
+                    resume
+                )
+
+        ranked.sort(
+
             key=lambda x: x["rerank_score"],
+
             reverse=True,
+
         )
 
-        return scores[:top_k]
+        return ranked[:top_k]

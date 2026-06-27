@@ -5,6 +5,7 @@ from app.services.embedding_service import EmbeddingService
 from app.services.mongodb_service import MongoDBService
 from app.services.retrieval_service import RetrievalService
 from app.services.reranker_service import RerankerService
+from app.services.scoring_service import ScoringService
 
 
 class JobService:
@@ -13,7 +14,7 @@ class JobService:
 
         self.llm = LLMService()
 
-        self.embedding = EmbeddingService()
+        self.embedding_service = EmbeddingService()
 
         self.mongo = MongoDBService()
 
@@ -21,7 +22,11 @@ class JobService:
 
         self.reranker = RerankerService()
 
-    def process_job(
+        self.scorer = ScoringService()
+
+    # ---------------------------------------------------
+
+    def match_job(
 
         self,
 
@@ -34,7 +39,7 @@ class JobService:
     ):
 
         # -----------------------------------
-        # Step 1 Extract Structured Job
+        # Extract Structured Job
         # -----------------------------------
 
         parsed = self.llm.call_llm(
@@ -45,105 +50,142 @@ class JobService:
 
         )
 
-        job = JobDTO(**parsed)
+        job = JobDTO(
 
-        # -----------------------------------
-        # Step 2 Generate Job Embedding
-        # -----------------------------------
-
-        job_embedding = self.embedding.generate_job_embedding(
-            job
-        )
-
-        # -----------------------------------
-        # Step 3 Store Job
-        # -----------------------------------
-
-        job_id = self.mongo.save_job(
-            job,
-            job_embedding,
-        )
-
-        # -----------------------------------
-        # Step 4 Retrieve Candidates
-        # -----------------------------------
-
-        retrieved = self.retrieval.retrieve_candidates(
-
-            job_embedding,
-
-            top_n=50,
-
-            filters=filters,
+            **parsed,
 
         )
 
         # -----------------------------------
-        # Step 5 Rerank
+        # Job Embedding
         # -----------------------------------
 
-        ranked = self.reranker.rerank(
+        job_embedding = (
 
-            job_description,
+            self.embedding_service.generate_job_embedding(
 
-            retrieved,
+                job
 
-            top_k,
+            )
 
         )
 
         # -----------------------------------
-        # Step 6 Build Response
+        # Load resumes
         # -----------------------------------
 
-        candidates = []
+        resumes = self.mongo.get_all_resumes()
 
-        rank = 1
+        # -----------------------------------
+        # Retrieve Top 50
+        # -----------------------------------
 
-        for resume in ranked:
+        retrieved = (
 
-            candidates.append({
+            self.retrieval.retrieve_candidates(
 
-                "rank": rank,
+                job_embedding=job_embedding,
 
-                "candidate_name": resume.get("candidate_name"),
+                resumes=resumes,
 
-                "email": resume.get("email"),
+                top_n=50,
 
-                "skills": resume.get("skills"),
+                filters=filters,
 
-                "similarity_score": round(
+            )
 
-                    resume["similarity_score"],
+        )
 
-                    4,
+        # -----------------------------------
+        # Rerank Top 50
+        # -----------------------------------
 
-                ),
+        reranked = (
 
-                "rerank_score": round(
+            self.reranker.rerank(
 
-                    resume["rerank_score"],
+                job_description,
 
-                    4,
+                retrieved,
 
-                ),
+                top_k=50,
+
+            )
+
+        )
+
+        # -----------------------------------
+        # Hybrid Scoring
+        # -----------------------------------
+
+        scored = (
+
+            self.scorer.score_candidates(
+
+                job,
+
+                reranked,
+
+            )
+
+        )
+        for rank, candidate in enumerate(scored, start=1):
+
+            candidate["rank"] = rank
+
+        matches = []
+
+        for candidate in scored[:top_k]:
+
+            matches.append({
+
+                "rank": candidate["rank"],
+
+                "candidate_name": candidate.get("candidate_name"),
+
+                "email": candidate.get("email"),
+
+                "phone": candidate.get("phone"),
+
+                "location": candidate.get("location"),
+
+                "experience": candidate.get("total_experience"),
+
+                "skills": candidate.get("skills"),
+
+                "similarity_score": candidate.get("similarity_score"),
+
+                "rerank_score": candidate.get("rerank_score"),
+
+                "final_score": candidate.get("final_score"),
+
+                "skill_match_percentage": candidate.get("skill_match_percentage"),
+
+                "matched_skills": candidate.get("matched_skills"),
+
+                "missing_skills": candidate.get("missing_skills"),
 
             })
 
-            rank += 1
-
+        # -----------------------------------
+        # Return Top K
+        # -----------------------------------
         return {
 
-            "message": "Matching Completed",
+            "job": job,
 
-            "job_id": job_id,
+            "total_candidates": len(resumes),
 
-            "job": job.model_dump(),
+            "retrieved": len(retrieved),
 
-            "total_candidates": len(retrieved),
+            "returned": min(
 
-            "top_k": top_k,
+                top_k,
 
-            "matches": candidates,
+                len(scored),
+
+            ),
+
+            "matches": matches,
 
         }

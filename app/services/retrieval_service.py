@@ -1,67 +1,114 @@
 import numpy as np
 
-from app.services.mongodb_service import MongoDBService
-
 
 class RetrievalService:
 
-    def __init__(self):
-        self.mongo = MongoDBService()
-
     @staticmethod
-    def cosine_similarity(vec1, vec2):
-        """
-        Compute cosine similarity between two vectors.
-        """
+    def cosine_similarity(
 
-        v1 = np.array(vec1, dtype=np.float32)
-        v2 = np.array(vec2, dtype=np.float32)
+        query_embedding,
 
-        denominator = (
-            np.linalg.norm(v1)
-            * np.linalg.norm(v2)
-        )
+        candidate_embedding,
 
-        if denominator == 0:
-            return 0.0
+    ):
+
+        query = np.array(query_embedding)
+
+        candidate = np.array(candidate_embedding)
 
         return float(
-            np.dot(v1, v2) / denominator
+
+            np.dot(query, candidate)
+
+            /
+
+            (
+
+                np.linalg.norm(query)
+
+                *
+
+                np.linalg.norm(candidate)
+
+            )
+
         )
+
+    # ---------------------------------------------
 
     def retrieve_candidates(
+
         self,
+
         job_embedding,
+
+        resumes,
+
         top_n=50,
+
         filters=None,
+
     ):
-        """
-        Retrieve Top-N resumes based on embedding similarity.
-        """
 
-        resumes = self.mongo.get_all_resumes(
-            filters
-        )
-
-        results = []
+        retrieved = []
 
         for resume in resumes:
 
-            if "embedding" not in resume:
-                continue
+            # ------------------------
+            # Apply Filters
+            # ------------------------
 
-            score = self.cosine_similarity(
+            if filters:
+
+                location = filters.get(
+                    "location"
+                )
+
+                if location:
+
+                    if (
+
+                        resume.get(
+                            "location",
+                            "",
+                        ).lower()
+
+                        !=
+
+                        location.lower()
+
+                    ):
+
+                        continue
+
+            similarity = self.cosine_similarity(
+
                 job_embedding,
+
                 resume["embedding"],
+
             )
 
-            resume["similarity_score"] = score
+            resume["similarity_score"] = round(
 
-            results.append(resume)
+                similarity,
 
-        results.sort(
+                4,
+
+            )
+
+            retrieved.append(
+
+                resume
+
+            )
+
+        retrieved.sort(
+
             key=lambda x: x["similarity_score"],
+
             reverse=True,
+
         )
 
-        return results[:top_n]
+        return retrieved[:top_n]

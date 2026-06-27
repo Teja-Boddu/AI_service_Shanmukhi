@@ -1,7 +1,9 @@
-from fastapi import APIRouter
+from typing import Optional
 
-from app.schemas.job_request import JobRequest
+from fastapi import APIRouter, Query
+
 from app.services.job_service import JobService
+
 
 router = APIRouter(
     prefix="/job",
@@ -13,17 +15,47 @@ job_service = JobService()
 
 @router.post("")
 def upload_job(
-    request: JobRequest,
+
+    job_description: str,
+
+    top_k: int = Query(
+        default=5,
+        ge=1,
+        le=50,
+    ),
+
+    location: Optional[str] = Query(
+        default=None,
+    ),
+
 ):
 
-    result = job_service.process_job(
+    result = job_service.match_job(
 
-        job_description=request.job_description,
+        job_description=job_description,
 
-        top_k=request.top_k,
+        top_k=top_k,
 
-        filters=request.filters,
+        filters={
+            "location": location,
+        }
+        if location
+        else None,
 
     )
 
-    return result
+    return {
+
+        "message": "Matching Completed",
+
+        "job": result["job"].model_dump(),
+
+        "total_candidates": result["total_candidates"],
+
+        "retrieved_candidates": result["retrieved"],
+
+        "top_k": result["returned"],
+
+        "matches": result["matches"],
+
+    }
