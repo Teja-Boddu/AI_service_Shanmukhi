@@ -27,11 +27,8 @@ class JobService:
     def match_job(
 
         self,
-
         job_description: str,
-
         top_k: int = 5,
-
         filters: dict | None = None,
 
     ):
@@ -41,11 +38,8 @@ class JobService:
         # -----------------------------------
 
         parsed = self.llm.call_llm(
-
             "job_prompt.txt",
-
             job_description,
-
         )
 
         job = JobDTO(
@@ -88,11 +82,11 @@ class JobService:
         # -----------------------------------
         for candidate in retrieved:
 
-            candidate.pop(
+            candidate["similarity_score"] = candidate.pop(
 
                 "embedding_score",
 
-                None,
+                0,
 
             )
         reranked = (
